@@ -16,9 +16,13 @@ def clean_text(text: str) -> str:
     text = re.sub(r"https?://\S+", "", text)
     # Remove excessive whitespace
     text = re.sub(r"\s+", " ", text).strip()
-    # Remove leading/trailing punctuation noise
-    text = text.strip(".,;:!?-—")
+    # Remove leading punctuation noise only (keep ending punctuation)
+    text = text.lstrip(".,;:!?-—\"'()[]{}")
+    # Ensure sentence ends with proper punctuation
+    if text and text[-1] not in ".!?":
+        text += "."
     return text
+
 
 
 def split_sentences_nltk(text: str) -> list:
