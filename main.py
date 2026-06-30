@@ -47,12 +47,35 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         pass  # Suppress default access logs
 
 
+def start_keep_alive():
+    """Ping own URL every 10 minutes to prevent Render free tier spin-down."""
+    import urllib.request
+    import time
+
+    # Wait 60 seconds for the service to be fully up
+    time.sleep(60)
+
+    while True:
+        try:
+            # Render sets RENDER_EXTERNAL_URL automatically
+            url = os.environ.get("RENDER_EXTERNAL_URL", "")
+            if url:
+                if not url.startswith("http"):
+                    url = f"https://{url}"
+                urllib.request.urlopen(url, timeout=10)
+                logger.info("Keep-alive ping sent successfully")
+        except Exception as e:
+            logger.debug(f"Keep-alive ping failed (will retry): {e}")
+        time.sleep(600)  # 10 minutes
+
+
 def start_web_server():
     """Start a minimal HTTP server on the PORT env var (required by Render)."""
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     logger.info(f"Web server listening on port {port}")
     server.serve_forever()
+
 
 
 def process_records(records: list, settings: dict):
@@ -126,9 +149,14 @@ def main():
     telegram_thread = threading.Thread(target=run_telegram_bot, args=(settings,), daemon=True)
     telegram_thread.start()
 
+    # Start keep-alive pinger in a background thread (prevents Render spin-down)
+    keep_alive_thread = threading.Thread(target=start_keep_alive, daemon=True)
+    keep_alive_thread.start()
+
     # Start web server on $PORT (blocking — keeps the service alive for Render)
     # Render requires a web service to listen on a port
     start_web_server()
+
 
 
 if __name__ == "__main__":
