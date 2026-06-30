@@ -5,11 +5,17 @@ Filipino Sentence Collector - Main Entry Point
 Collects sentences from:
   - Telegram bot input (primary)
   - RSS feeds (automated)
+
+Designed for deployment on Render free tier (Web Service).
+Runs a minimal HTTP server on $PORT (required by Render) while
+the Telegram bot and scheduler run in the background.
 """
 
 import os
 import sys
+import threading
 import logging
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
 # Set base directory to the script's location
@@ -26,6 +32,27 @@ from collectors.telegram_collector import TelegramCollector
 from scheduler import load_config, load_sources, create_scheduler, run_rss_collection
 
 logger = setup_logger("filipino_collector", "INFO", "filipino_collector.log")
+
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Minimal HTTP handler so Render detects a web service on $PORT."""
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Filipino Sentence Collector is running!")
+
+    def log_message(self, format, *args):
+        pass  # Suppress default access logs
+
+
+def start_web_server():
+    """Start a minimal HTTP server on the PORT env var (required by Render)."""
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"Web server listening on port {port}")
+    server.serve_forever()
 
 
 def process_records(records: list, settings: dict):
@@ -53,6 +80,25 @@ def process_records(records: list, settings: dict):
             logger.error(f"Google Sheets export failed: {e}")
 
 
+def run_telegram_bot(settings: dict):
+    """Run the Telegram bot in a background thread."""
+    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not telegram_token:
+        logger.warning("No TELEGRAM_BOT_TOKEN found. Skipping Telegram bot.")
+        return
+
+    def telegram_callback(records):
+        process_records(records, settings)
+
+    bot = TelegramCollector(
+        token=telegram_token,
+        process_callback=telegram_callback,
+        split_func=split_sentences,
+    )
+    logger.info("Starting Telegram bot...")
+    bot.run()
+
+
 def main():
     """Main entry point."""
     settings = load_config("config/settings.yaml")
@@ -71,34 +117,18 @@ def main():
     logger.info("Running initial RSS collection...")
     run_rss_collection(settings, sources)
 
-    # Start scheduler
+    # Start scheduler for periodic RSS collection
     scheduler = create_scheduler(settings, sources)
     scheduler.start()
     logger.info("Scheduler started for periodic RSS collection")
 
-    # Start Telegram bot (blocking - keeps app running)
-    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if telegram_token:
-        def telegram_callback(records):
-            process_records(records, settings)
+    # Start Telegram bot in a background thread
+    telegram_thread = threading.Thread(target=run_telegram_bot, args=(settings,), daemon=True)
+    telegram_thread.start()
 
-        bot = TelegramCollector(
-            token=telegram_token,
-            process_callback=telegram_callback,
-            split_func=split_sentences,
-        )
-        logger.info("Starting Telegram bot (blocking)...")
-        bot.run()
-    else:
-        logger.warning("No TELEGRAM_BOT_TOKEN found. Running scheduler-only mode.")
-        logger.info("Press Ctrl+C to exit.")
-        try:
-            import time
-            while True:
-                time.sleep(1)
-        except (KeyboardInterrupt, SystemExit):
-            scheduler.shutdown()
-            logger.info("Shut down gracefully.")
+    # Start web server on $PORT (blocking — keeps the service alive for Render)
+    # Render requires a web service to listen on a port
+    start_web_server()
 
 
 if __name__ == "__main__":
