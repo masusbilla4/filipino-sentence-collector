@@ -125,6 +125,39 @@ class TelegramCollector:
             logger.error(f"Error in /status command: {e}")
             await update.message.reply_text(f"⚠️ Could not retrieve status: {e}")
 
+    async def _handle_cleanup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /cleanup command — remove duplicate rows from Google Sheet."""
+        try:
+            await update.message.reply_text("🧹 Cleaning up duplicates in Google Sheet...")
+
+            from exporters.sheets_exporter import GoogleSheetsExporter
+            import yaml
+
+            # Load settings to get sheet config
+            with open("config/settings.yaml", "r", encoding="utf-8") as f:
+                settings = yaml.safe_load(f)
+
+            gs_config = settings.get("output", {}).get("google_sheets", {})
+            if not gs_config.get("enabled", False):
+                await update.message.reply_text("⚠️ Google Sheets is not enabled.")
+                return
+
+            exporter = GoogleSheetsExporter(
+                credentials_path=gs_config.get("credentials_path", ""),
+                sheet_name=gs_config.get("sheet_name", "Filipino Sentences"),
+            )
+            removed = exporter.cleanup_duplicates()
+
+            if removed > 0:
+                await update.message.reply_text(
+                    f"✅ Removed {removed} duplicate row(s) from Google Sheet!"
+                )
+            else:
+                await update.message.reply_text("✅ No duplicates found. Sheet is clean!")
+        except Exception as e:
+            logger.error(f"Error in /cleanup command: {e}")
+            await update.message.reply_text(f"⚠️ Cleanup failed: {e}")
+
     async def _handle_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command."""
         await update.message.reply_text(
@@ -132,10 +165,13 @@ class TelegramCollector:
             "*Commands:*\n"
             "• Send any text → Collects sentences\n"
             "• /status → Check RSS feed status\n"
+            "• /cleanup → Remove duplicate rows from Google Sheet\n"
             "• /help → Show this message\n\n"
-            "Sentences are saved to Google Sheets automatically.",
+            "Sentences are saved to Google Sheets automatically.\n"
+            "Duplicates are skipped on new entries automatically.",
             parse_mode="Markdown"
         )
+
 
     def run(self):
         """Start the Telegram bot (blocking)."""
@@ -143,7 +179,9 @@ class TelegramCollector:
 
         # Handle commands
         self.application.add_handler(CommandHandler("status", self._handle_status))
+        self.application.add_handler(CommandHandler("cleanup", self._handle_cleanup))
         self.application.add_handler(CommandHandler("help", self._handle_help))
+
 
         # Handle all text messages (non-commands)
         self.application.add_handler(

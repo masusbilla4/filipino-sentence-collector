@@ -70,9 +70,61 @@ class GoogleSheetsExporter:
             logger.error(f"Could not connect to Google Sheets: {e}")
             raise
 
+    def _get_existing_sentences(self) -> set:
+        """Get all existing sentences from the sheet for deduplication."""
+        try:
+            all_values = self._sheet.get_all_values()
+            if not all_values:
+                return set()
+
+            # Skip header row, get column A (sentences)
+            existing = set()
+            for row in all_values[1:]:  # Skip header
+                if row and row[0]:
+                    existing.add(row[0].lower().strip())
+            return existing
+        except Exception as e:
+            logger.warning(f"Could not read existing sentences for dedup: {e}")
+            return set()
+
+    def _remove_duplicates_from_sheet(self):
+        """Remove duplicate rows from the Google Sheet, keeping the first occurrence."""
+        try:
+            all_values = self._sheet.get_all_values()
+            if not all_values or len(all_values) <= 1:
+                return 0
+
+            header = all_values[0]
+            data_rows = all_values[1:]
+
+            seen = set()
+            unique_rows = []
+            duplicate_indices = []
+
+            for i, row in enumerate(data_rows):
+                sentence = row[0].lower().strip() if row else ""
+                if sentence in seen:
+                    duplicate_indices.append(i + 2)  # +2 because row 1 is header, and index is 0-based
+                else:
+                    seen.add(sentence)
+                    unique_rows.append(row)
+
+            if not duplicate_indices:
+                return 0
+
+            # Delete duplicate rows (from bottom to top to preserve indices)
+            for row_num in sorted(duplicate_indices, reverse=True):
+                self._sheet.delete_rows(row_num)
+
+            logger.info(f"Removed {len(duplicate_indices)} duplicate rows from Google Sheet")
+            return len(duplicate_indices)
+        except Exception as e:
+            logger.warning(f"Could not remove duplicates from sheet: {e}")
+            return 0
+
     def export(self, records: list) -> int:
         """
-        Append records to Google Sheet.
+        Append records to Google Sheet, skipping duplicates.
         
         Returns the number of rows appended.
         """
@@ -92,9 +144,24 @@ class GoogleSheetsExporter:
         except Exception as e:
             logger.warning(f"Could not check sheet headers: {e}")
 
+        # Get existing sentences for deduplication
+        existing_sentences = self._get_existing_sentences()
+
+        # Filter out duplicates
+        new_records = []
+        for r in records:
+            sentence = r.get("sentence", "").lower().strip()
+            if sentence and sentence not in existing_sentences:
+                new_records.append(r)
+                existing_sentences.add(sentence)  # Prevent intra-batch duplicates
+
+        if not new_records:
+            logger.info("All records are duplicates in Google Sheet. Nothing new to append.")
+            return 0
+
         # Append rows — use table_range="A1" to ensure data goes vertically
         rows = []
-        for r in records:
+        for r in new_records:
             rows.append([
                 r.get("sentence", ""),
                 r.get("word_count", ""),
@@ -112,10 +179,20 @@ class GoogleSheetsExporter:
                 insert_data_option="INSERT_ROWS",
                 table_range="A1"
             )
-            logger.info(f"Appended {len(rows)} rows to Google Sheet")
+            logger.info(f"Appended {len(rows)} new rows to Google Sheet (skipped {len(records) - len(rows)} duplicates)")
             return len(rows)
         except Exception as e:
             logger.error(f"Error appending to Google Sheet: {e}")
             return 0
 
+    def cleanup_duplicates(self) -> int:
+        """
+        Remove all duplicate rows from the Google Sheet, keeping the first occurrence.
+        Call this manually or on a schedule to clean up existing duplicates.
+        """
+        if self._sheet is None:
+            self._connect()
+            if self._sheet is None:
+                return 0
 
+        return self._remove_duplicates_from_sheet()
