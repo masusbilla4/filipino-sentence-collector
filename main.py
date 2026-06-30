@@ -145,17 +145,17 @@ def main():
     scheduler.start()
     logger.info("Scheduler started for periodic RSS collection")
 
-    # Start Telegram bot in a background thread
-    telegram_thread = threading.Thread(target=run_telegram_bot, args=(settings,), daemon=True)
-    telegram_thread.start()
+    # Start web server in a background thread (Render needs it on $PORT)
+    web_thread = threading.Thread(target=start_web_server, daemon=True)
+    web_thread.start()
 
     # Start keep-alive pinger in a background thread (prevents Render spin-down)
     keep_alive_thread = threading.Thread(target=start_keep_alive, daemon=True)
     keep_alive_thread.start()
 
-    # Start web server on $PORT (blocking — keeps the service alive for Render)
-    # Render requires a web service to listen on a port
-    start_web_server()
+    # Run Telegram bot in the MAIN thread (required by asyncio event loop)
+    run_telegram_bot(settings)
+
 
 
 
