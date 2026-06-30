@@ -15,3 +15,11 @@ rss:
     url: "https://mb.com.ph/feed/"
   - name: "SunStar"
     url: "https://www.sunstar.com.ph/feed"
+  - name: "Manila Times - News"
+    url: "https://www.manilatimes.net/news/feed/"
+  - name: "Manila Times - Literary Life"
+    url: "https://www.manilatimes.net/the-sunday-times/literary-life/feed/"
+  - name: "Manila Times - Business"
+    url: "https://www.manilatimes.net/business/feed/"
+
+
