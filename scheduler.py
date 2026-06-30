@@ -1,5 +1,6 @@
 """Scheduler for automated RSS collection."""
 
+import os
 import logging
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -23,6 +24,23 @@ def load_sources(config_path: str = "config/sources.yaml") -> dict:
         return yaml.safe_load(f)
 
 
+def export_to_sheets(records: list, settings: dict):
+    """Export records to Google Sheets if enabled."""
+    gs_config = settings.get("output", {}).get("google_sheets", {})
+    if not gs_config.get("enabled", False):
+        return
+
+    try:
+        from exporters.sheets_exporter import GoogleSheetsExporter
+        exporter = GoogleSheetsExporter(
+            credentials_path=gs_config.get("credentials_path", ""),
+            sheet_name=gs_config.get("sheet_name", "Filipino Sentences"),
+        )
+        exporter.export(records)
+    except Exception as e:
+        logger.error(f"Google Sheets export failed: {e}")
+
+
 def run_rss_collection(settings: dict, sources: dict):
     """Run RSS collection and processing pipeline."""
     logger.info("=== Starting scheduled RSS collection ===")
@@ -35,7 +53,13 @@ def run_rss_collection(settings: dict, sources: dict):
         daily = settings.get("output", {}).get("daily_files", True)
         min_words = settings.get("filters", {}).get("min_word_count", 5)
 
+        # Export to CSV
         export_to_csv(records, output_dir, daily, min_words)
+
+        # Export to Google Sheets
+        if records:
+            export_to_sheets(records, settings)
+
         logger.info("=== RSS collection complete ===")
     except Exception as e:
         logger.error(f"RSS collection failed: {e}")
