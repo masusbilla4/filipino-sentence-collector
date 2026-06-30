@@ -88,11 +88,11 @@ class GoogleSheetsExporter:
         try:
             existing = self._sheet.get_all_values()
             if not existing:
-                self._sheet.append_row(CSV_COLUMNS)
+                self._sheet.append_row(CSV_COLUMNS, value_input_option="RAW")
         except Exception as e:
             logger.warning(f"Could not check sheet headers: {e}")
 
-        # Append rows
+        # Append rows — use table_range="A1" to ensure data goes vertically
         rows = []
         for r in records:
             rows.append([
@@ -106,9 +106,16 @@ class GoogleSheetsExporter:
             ])
 
         try:
-            self._sheet.append_rows(rows)
+            self._sheet.append_rows(
+                rows,
+                value_input_option="RAW",
+                insert_data_option="INSERT_ROWS",
+                table_range="A1"
+            )
             logger.info(f"Appended {len(rows)} rows to Google Sheet")
             return len(rows)
         except Exception as e:
             logger.error(f"Error appending to Google Sheet: {e}")
             return 0
+
+
