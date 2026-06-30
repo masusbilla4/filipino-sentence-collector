@@ -1,0 +1,7 @@
+.env
+credentials/*.json
+output/*.csv
+__pycache__/
+*.pyc
+venv/
+filipino_collector.log

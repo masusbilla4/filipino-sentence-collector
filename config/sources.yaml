@@ -1,0 +1,7 @@
+rss:
+  - name: "ABS-CBN News"
+    url: "https://news.abs-cbn.com/rss/feed"
+  - name: "GMA News"
+    url: "https://www.gmanetwork.com/news/rss/rss.xml"
+  - name: "Inquirer Filipino"
+    url: "https://www.inquirer.net/fullfeed"

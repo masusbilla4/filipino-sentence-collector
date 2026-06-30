@@ -1,0 +1,18 @@
+filters:
+  min_word_count: 5
+  deduplicate: true
+
+output:
+  csv_dir: "output"
+  daily_files: true
+  google_sheets:
+    enabled: false
+    sheet_name: "Filipino Sentences"
+    credentials_path: "credentials/service_account.json"
+
+schedule:
+  rss_interval_minutes: 60
+
+logging:
+  level: "INFO"
+  file: "filipino_collector.log"
