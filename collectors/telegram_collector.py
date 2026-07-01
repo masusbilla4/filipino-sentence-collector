@@ -4,8 +4,9 @@ import logging
 from datetime import datetime
 from typing import Callable, List
 
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
+
 
 logger = logging.getLogger("filipino_collector")
 
@@ -173,15 +174,27 @@ class TelegramCollector:
         )
 
 
+    async def _set_bot_commands(self, application):
+        """Set the bot command menu so commands appear as a list when user types /."""
+        commands = [
+            BotCommand("status", "📡 Check RSS feed status"),
+            BotCommand("cleanup", "🧹 Remove duplicates from Google Sheet"),
+            BotCommand("help", "❓ Show help and commands"),
+        ]
+        await application.bot.set_my_commands(commands)
+        logger.info("Bot command menu set.")
+
     def run(self):
         """Start the Telegram bot (blocking)."""
         self.application = Application.builder().token(self.token).build()
+
+        # Set bot command menu on startup
+        self.application.post_init = self._set_bot_commands
 
         # Handle commands
         self.application.add_handler(CommandHandler("status", self._handle_status))
         self.application.add_handler(CommandHandler("cleanup", self._handle_cleanup))
         self.application.add_handler(CommandHandler("help", self._handle_help))
-
 
         # Handle all text messages (non-commands)
         self.application.add_handler(
@@ -190,3 +203,5 @@ class TelegramCollector:
 
         logger.info("Telegram bot started. Listening for messages...")
         self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
