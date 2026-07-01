@@ -18,6 +18,15 @@ import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
+# Set timezone to Asia/Singapore (GMT+8) before any datetime calls
+os.environ["TZ"] = "Asia/Singapore"
+try:
+    import time
+    time.tzset()
+except AttributeError:
+    pass  # Windows doesn't support tzset()
+
+
 # Set base directory to the script's location
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(BASE_DIR)
