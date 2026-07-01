@@ -11,10 +11,9 @@ rss:
     url: "https://interaksyon.philstar.com/celebrities/feed/"
   - name: "Interaksyon - Hobbies & Interests"
     url: "https://interaksyon.philstar.com/hobbies-interests/feed/"
-  - name: "Manila Bulletin"
-    url: "https://mb.com.ph/feed/"
   - name: "SunStar"
     url: "https://www.sunstar.com.ph/feed"
+
   - name: "Manila Times - News"
     url: "https://www.manilatimes.net/news/feed/"
   - name: "Manila Times - Literary Life"
