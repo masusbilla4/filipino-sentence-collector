@@ -4,6 +4,7 @@ import os
 import json
 import logging
 import tempfile
+from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger("filipino_collector")
@@ -31,7 +32,7 @@ class GoogleSheetsExporter:
         self.credentials_path = credentials_path
         self.sheet_name = sheet_name
         self._client = None
-        self._sheet = None
+        self._spreadsheet = None
 
     def _connect(self):
         """Establish connection to Google Sheets."""
@@ -61,7 +62,7 @@ class GoogleSheetsExporter:
                 )
                 return
 
-            self._sheet = self._client.open(self.sheet_name).sheet1
+            self._spreadsheet = self._client.open(self.sheet_name)
             logger.info(f"Opened Google Sheet: {self.sheet_name}")
         except ImportError:
             logger.error("gspread not installed. Install with: pip install gspread")
@@ -70,10 +71,30 @@ class GoogleSheetsExporter:
             logger.error(f"Could not connect to Google Sheets: {e}")
             raise
 
-    def _get_existing_sentences(self) -> set:
-        """Get all existing sentences from the sheet for deduplication."""
+    def _get_or_create_daily_sheet(self):
+        """
+        Get or create a worksheet (tab) for today's date.
+        Returns the worksheet object.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # Try to get existing worksheet for today
         try:
-            all_values = self._sheet.get_all_values()
+            worksheet = self._spreadsheet.worksheet(today)
+            logger.info(f"Using existing daily tab: {today}")
+            return worksheet
+        except Exception:
+            # Worksheet doesn't exist, create it
+            worksheet = self._spreadsheet.add_worksheet(title=today, rows=1, cols=len(CSV_COLUMNS))
+            # Add headers
+            worksheet.append_row(CSV_COLUMNS, value_input_option="RAW")
+            logger.info(f"Created new daily tab: {today}")
+            return worksheet
+
+    def _get_existing_sentences(self, worksheet) -> set:
+        """Get all existing sentences from a worksheet for deduplication."""
+        try:
+            all_values = worksheet.get_all_values()
             if not all_values:
                 return set()
 
@@ -87,36 +108,33 @@ class GoogleSheetsExporter:
             logger.warning(f"Could not read existing sentences for dedup: {e}")
             return set()
 
-    def _remove_duplicates_from_sheet(self):
-        """Remove duplicate rows from the Google Sheet, keeping the first occurrence."""
+    def _remove_duplicates_from_sheet(self, worksheet):
+        """Remove duplicate rows from a worksheet, keeping the first occurrence."""
         try:
-            all_values = self._sheet.get_all_values()
+            all_values = worksheet.get_all_values()
             if not all_values or len(all_values) <= 1:
                 return 0
 
-            header = all_values[0]
             data_rows = all_values[1:]
 
             seen = set()
-            unique_rows = []
             duplicate_indices = []
 
             for i, row in enumerate(data_rows):
                 sentence = row[0].lower().strip() if row else ""
                 if sentence in seen:
-                    duplicate_indices.append(i + 2)  # +2 because row 1 is header, and index is 0-based
+                    duplicate_indices.append(i + 2)  # +2: row 1 is header, index is 0-based
                 else:
                     seen.add(sentence)
-                    unique_rows.append(row)
 
             if not duplicate_indices:
                 return 0
 
             # Delete duplicate rows (from bottom to top to preserve indices)
             for row_num in sorted(duplicate_indices, reverse=True):
-                self._sheet.delete_rows(row_num)
+                worksheet.delete_rows(row_num)
 
-            logger.info(f"Removed {len(duplicate_indices)} duplicate rows from Google Sheet")
+            logger.info(f"Removed {len(duplicate_indices)} duplicate rows from sheet")
             return len(duplicate_indices)
         except Exception as e:
             logger.warning(f"Could not remove duplicates from sheet: {e}")
@@ -124,28 +142,23 @@ class GoogleSheetsExporter:
 
     def export(self, records: list) -> int:
         """
-        Append records to Google Sheet, skipping duplicates.
+        Append records to Google Sheet in a daily tab, skipping duplicates.
         
         Returns the number of rows appended.
         """
         if not records:
             return 0
 
-        if self._sheet is None:
+        if self._spreadsheet is None:
             self._connect()
-            if self._sheet is None:
+            if self._spreadsheet is None:
                 return 0
 
-        # Add header if sheet is empty
-        try:
-            existing = self._sheet.get_all_values()
-            if not existing:
-                self._sheet.append_row(CSV_COLUMNS, value_input_option="RAW")
-        except Exception as e:
-            logger.warning(f"Could not check sheet headers: {e}")
+        # Get or create today's daily tab
+        worksheet = self._get_or_create_daily_sheet()
 
         # Get existing sentences for deduplication
-        existing_sentences = self._get_existing_sentences()
+        existing_sentences = self._get_existing_sentences(worksheet)
 
         # Filter out duplicates
         new_records = []
@@ -159,7 +172,7 @@ class GoogleSheetsExporter:
             logger.info("All records are duplicates in Google Sheet. Nothing new to append.")
             return 0
 
-        # Append rows — use table_range="A1" to ensure data goes vertically
+        # Append rows
         rows = []
         for r in new_records:
             rows.append([
@@ -173,13 +186,14 @@ class GoogleSheetsExporter:
             ])
 
         try:
-            self._sheet.append_rows(
+            worksheet.append_rows(
                 rows,
                 value_input_option="RAW",
                 insert_data_option="INSERT_ROWS",
                 table_range="A1"
             )
-            logger.info(f"Appended {len(rows)} new rows to Google Sheet (skipped {len(records) - len(rows)} duplicates)")
+            today = datetime.now().strftime("%Y-%m-%d")
+            logger.info(f"Appended {len(rows)} new rows to tab '{today}' (skipped {len(records) - len(rows)} duplicates)")
             return len(rows)
         except Exception as e:
             logger.error(f"Error appending to Google Sheet: {e}")
@@ -187,12 +201,12 @@ class GoogleSheetsExporter:
 
     def cleanup_duplicates(self) -> int:
         """
-        Remove all duplicate rows from the Google Sheet, keeping the first occurrence.
-        Call this manually or on a schedule to clean up existing duplicates.
+        Remove all duplicate rows from today's daily tab, keeping the first occurrence.
         """
-        if self._sheet is None:
+        if self._spreadsheet is None:
             self._connect()
-            if self._sheet is None:
+            if self._spreadsheet is None:
                 return 0
 
-        return self._remove_duplicates_from_sheet()
+        worksheet = self._get_or_create_daily_sheet()
+        return self._remove_duplicates_from_sheet(worksheet)
